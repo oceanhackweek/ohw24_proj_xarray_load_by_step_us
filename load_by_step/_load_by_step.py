@@ -73,8 +73,9 @@ def split_array(arr: validator_1d_array,
                 n: int_ge_1,
                 ) -> list[list[Any]]:
     """Split a 1D array in blocks with n elements."""
-    return [x.tolist()
-            for x in np.array_split(arr, range(n, arr.size, n))]
+    
+    # Use: list(x) instead of x.tolist() to preserve type of np.datetime64
+    return [list(x) for x in np.array_split(arr, range(n, arr.size, n))]
 
 
 @xr.register_dataarray_accessor("lbs")
@@ -127,7 +128,7 @@ class DALoadByStep:
             dims_and_steps: dict[str, int],
             ) -> dict[str, list[list[Any]]]:
         """Return dict with dimensions as keys and list of lists of subsets
-        indexes as values."""
+        as values."""
         
         # Note: must use indexes of values instead of values because time
         # values are np.datetime64 and xarray does not accept selection based
@@ -136,8 +137,7 @@ class DALoadByStep:
         
         dims_and_subsets = dict()
         for dim, step in dims_and_steps.items():
-            dims_and_subsets[dim] = split_array(np.arange(self.da[dim].size),
-                                                step)  
+            dims_and_subsets[dim] = split_array(self.da[dim].values, step)  
         
         return dims_and_subsets
     
@@ -147,7 +147,7 @@ class DALoadByStep:
             dims_and_subsets: dict[str, list[list[Any]]],
             ) -> list[dict[str, list[Any]]]:
         """Return list of dicts with dimensions as keys and list of subsets
-        indexes as values."""
+        as values."""
         
         return [dict(zip(dims_and_subsets.keys(), values))
                 for values in itertools.product(*dims_and_subsets.values())]
@@ -187,7 +187,7 @@ class DALoadByStep:
     
         das = []
         for subset in tqdm(subsets):
-            das.append(self.da.isel(**subset).compute())
+            das.append(self.da.sel(**subset).compute())
             
         da = self._concat_list_of_dataarrays(das)
         
