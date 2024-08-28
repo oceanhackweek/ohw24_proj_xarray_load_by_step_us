@@ -138,7 +138,7 @@ class DALoadByStep:
     def _create_dict_with_dims_and_subsets(
             self,
             dims_and_steps: dict[str, int],
-            ) -> dict[str, list[list[Any]]]:
+    ) -> dict[str, list[list[Any]]]:
         """Return dict with dimensions as keys and list of lists of subsets
         as values."""
 
@@ -152,7 +152,7 @@ class DALoadByStep:
     def _combine_dict_with_dims_and_subsets(
             self,
             dims_and_subsets: dict[str, list[list[Any]]],
-            ) -> list[dict[str, list[Any]]]:
+    ) -> list[dict[str, list[Any]]]:
         """Return list of dicts with dimensions as keys and list of subsets
         as values."""
 
@@ -170,21 +170,6 @@ class DALoadByStep:
 
             raise MemoryError(err_msg)
 
-    def _check_chunk_size(self, subset, chunk_max_size: int) -> None:
-        """Raise an error if the chunk size is greater than the allowed
-        chunk_max_size."""
-
-        if (chunk_size := self.da.sel(**subset).lbs.nbytes_packed) > chunk_max_size:
-
-            err_msg = ("With the requested `dim=step`, the chunk size is"
-                       f" {bytesize_to_human_readable(chunk_size)}."
-                       " This is more than the allowed chunk_max_size of"
-                       f" {bytesize_to_human_readable(chunk_max_size)}."
-                       " Consider reducing the step or subsetting in more"
-                       " dimension: dim1=step1, dim2=step2, ...")
-
-            raise ValueError(err_msg)
-
     def _concat_list_of_dataarrays(self, das: list[xr.DataArray]) -> xr.DataArray:
         """Concatenate a list of DataArrays into a single DataArray."""
 
@@ -201,7 +186,6 @@ class DALoadByStep:
     @validate_func_args_and_return
     def load_by_step(self,
                      indexers: Mapping[Any, int_ge_1] | None = None,
-                     chunk_max_size: ByteSize = "50MB",
                      **indexers_kwargs: int_ge_1 | None,
                      ) -> xr.DataArray:
 
@@ -219,8 +203,6 @@ class DALoadByStep:
 
         # this is the main iterable
         subsets = self._combine_dict_with_dims_and_subsets(dims_and_subsets)
-
-        self._check_chunk_size(subsets[0], chunk_max_size)
 
         das = []
         for subset in tqdm(subsets):
