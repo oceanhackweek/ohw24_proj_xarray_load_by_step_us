@@ -18,8 +18,13 @@ preserve relative paths, but the dataset does not need to be added to git/GitHub
 You can start with a simple structure and as you progress you can refine it to contain more components. [Here](https://cookiecutter-data-science.drivendata.org/#directory-structure) is an example of a more elaborate structure for a data science project.
 
 ## Project Name
+Xarray load-by-step
 
 ## One-line Description
+A Xarray accessor to download large quantities of data from THREDDS server automatically breaking a large request in smaller requests to avoid server timeout.
+
+## How to install?
+pip install load_by_step@git+https://github.com/oceanhackweek/ohw24_proj_xarray_load_by_step_us
 
 ## Planning
 
@@ -27,9 +32,8 @@ You can start with a simple structure and as you progress you can refine it to c
 
 | Name                | Location   | Role                |
 |---------------------|------------|---------------------|
-| Participant 1       | Virtual    | Project Facilitator |
-| Participant 2       | Bigelow    | Participant         |
-| Participant 3       | Bigelow    | Participant         |
+| Marcelo Andrioni    | Bigelow    | Participant         |
+| João Pedro Amorim   | Bigelow    | Participant         |
 
 ## Planning
 
