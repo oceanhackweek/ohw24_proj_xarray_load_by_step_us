@@ -9,7 +9,8 @@
 %reset -f
 
 from typing import Any, Mapping, Annotated
-from pydantic import validate_call, Field, ByteSize, AfterValidator
+from pydantic import (validate_call, Field, ByteSize, AfterValidator,
+                      NonNegativeFloat)
 import itertools
 import psutil
 import numpy as np
@@ -112,13 +113,6 @@ class DALoadByStep:
         dtype = self.da.encoding.get("dtype", self.da.dtype)
         return np.dtype(dtype).itemsize
 
-    @property
-    def nbytes_packed(self) -> int:
-        """Total bytes consumed by the elements of this DataArray's data in
-        "packed" format."""
-
-        return self.da.size * self.itemsize_packed
-
     @classmethod
     def _indexers_or_indexers_kwargs(cls,
                                      indexers: dict[Any, Any] | None,
@@ -170,6 +164,14 @@ class DALoadByStep:
 
             raise MemoryError(err_msg)
 
+    def _check_dims(self, dims: list[str]) -> None:
+        """Check if the request dimensions exist."""
+
+        for dim in dims:
+            if dim not in self.da.dims:
+                raise ValueError(f"'{dim}' is not a valid dimension. Valid"
+                                 " dimensions are: " + ", ".join(self.da.dims))
+
     def _concat_list_of_dataarrays(self, das: list[xr.DataArray]) -> xr.DataArray:
         """Concatenate a list of DataArrays into a single DataArray."""
 
@@ -183,9 +185,22 @@ class DALoadByStep:
 
         return da
 
+    def _pbar_message(self, subset: dict[Any, list[Any]]) -> str:
+
+        size = self.da.sel(subset).size * self.itemsize_packed
+
+        preffix = (f"Donwloading '{bytesize_to_human_readable(size)}' of"
+                   f" '{self.name}' between ")
+
+        msg = ", ".join([f"{k}=[{v[0]}, {v[-1]}]"
+                         for k, v in subset.items()])
+
+        return f"{preffix}{msg}"
+
     @validate_func_args_and_return
     def load_by_step(self,
                      indexers: Mapping[Any, int_ge_1] | None = None,
+                     time_between_requests: NonNegativeFloat = 0,
                      **indexers_kwargs: int_ge_1 | None,
                      ) -> xr.DataArray:
 
@@ -199,14 +214,19 @@ class DALoadByStep:
         indexers_kwargs = self.__class__._indexers_or_indexers_kwargs(indexers,
                                                                       indexers_kwargs)
 
+        self._check_dims(indexers_kwargs.keys())
+
         dims_and_subsets = self._create_dict_with_dims_and_subsets(indexers_kwargs)
 
         # this is the main iterable
         subsets = self._combine_dict_with_dims_and_subsets(dims_and_subsets)
 
         das = []
-        for subset in tqdm(subsets):
-            das.append(self.da.sel(**subset).compute())
+        with tqdm(subsets) as pbar:
+            for subset in pbar:
+                pbar.set_description(self._pbar_message(subset))
+                das.append(self.da.sel(**subset).compute())
+                time.sleep(time_between_requests)
 
         da = self._concat_list_of_dataarrays(das)
 
@@ -216,4 +236,4 @@ class DALoadByStep:
 ds = xr.tutorial.open_dataset("air_temperature")
 da = ds["air"]
 
-da2 = da.lbs.load_by_step(time=100, lat=15)
+da2 = da.lbs.load_by_step(time=100)
