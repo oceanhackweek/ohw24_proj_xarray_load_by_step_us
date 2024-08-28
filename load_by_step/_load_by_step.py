@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# __all__ = [
+__all__ = [
+    "DALoadByStep",
+    "DSLoadByStep",
+]
 
-# ]
 
-
-%reset -f
+# %reset -f
 
 from typing import Any, Mapping, Annotated
 from pydantic import (validate_call, Field, ByteSize, AfterValidator,
@@ -85,11 +86,54 @@ def bytesize_to_human_readable(size: int) -> str:
     return ByteSize(size).human_readable(decimal=True)
 
 
-@xr.register_dataarray_accessor("lbs")
-class DALoadByStep:
+class DsDaMixin:
+    """Methods common to Datasets and DataArrays."""
 
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
+
+    @property
+    def dx(self) -> xr.Dataset | xr.DataArray:
+        """Returns the Dataset or DataArray itself."""
+        return self._obj
+
+    @classmethod
+    def _indexers_or_indexers_kwargs(cls,
+                                     indexers: dict[Any, Any] | None,
+                                     indexers_kwargs: dict[Any, Any] | None,
+                                     ) -> dict[Any, Any]:
+        """Check if indexers OR indexers_kwargs was given and return it."""
+
+        input_args = [indexers, indexers_kwargs]
+
+        m = list(map(lambda x: 1 if x else 0, input_args))
+        if sum(m) != 1:
+            raise ValueError("indexers OR indexers_kwargs must be given")
+
+        return input_args[m.index(1)]
+
+    def _check_dims(self, dims: list[str]) -> None:
+        """Check if the request dimensions exist."""
+
+        for dim in dims:
+            if dim not in self.dx.dims:
+                raise ValueError(f"'{dim}' is not a valid dimension. Valid"
+                                 " dimensions are: " + ", ".join(self.dx.dims))
+
+    def _check_available_memory(self) -> None:
+        """Raise an error if there is no free memory to hold the full data."""
+
+        if (free_memory := psutil.virtual_memory().available) < self.dx.nbytes:
+
+            err_msg = ("The unpacked data needs"
+                       f" {bytesize_to_human_readable(self.da.nbytes)} but the"
+                       f" system only has {bytesize_to_human_readable(free_memory)}")
+
+            raise MemoryError(err_msg)
+
+
+@xr.register_dataarray_accessor("lbs")
+class DALoadByStep(DsDaMixin):
 
     @property
     def da(self) -> xr.DataArray:
@@ -112,21 +156,6 @@ class DALoadByStep:
 
         dtype = self.da.encoding.get("dtype", self.da.dtype)
         return np.dtype(dtype).itemsize
-
-    @classmethod
-    def _indexers_or_indexers_kwargs(cls,
-                                     indexers: dict[Any, Any] | None,
-                                     indexers_kwargs: dict[Any, Any] | None,
-                                     ) -> dict[Any, Any]:
-        """Check if indexers OR indexers_kwargs was given and return it."""
-
-        input_args = [indexers, indexers_kwargs]
-
-        m = list(map(lambda x: 1 if x else 0, input_args))
-        if sum(m) != 1:
-            raise ValueError("indexers OR indexers_kwargs must be given")
-
-        return input_args[m.index(1)]
 
     @validate_func_args_and_return
     def _create_dict_with_dims_and_subsets(
@@ -153,25 +182,6 @@ class DALoadByStep:
         return [dict(zip(dims_and_subsets.keys(), values))
                 for values in itertools.product(*dims_and_subsets.values())]
 
-    def _check_available_memory(self) -> None:
-        """Raise an error if there is no free memory to hold the full DataArray."""
-
-        if (free_memory := psutil.virtual_memory().available) < self.da.nbytes:
-
-            err_msg = ("The unpacked DataArray needs"
-                       f" {bytesize_to_human_readable(self.da.nbytes)} but the"
-                       f" system only has {bytesize_to_human_readable(free_memory)}")
-
-            raise MemoryError(err_msg)
-
-    def _check_dims(self, dims: list[str]) -> None:
-        """Check if the request dimensions exist."""
-
-        for dim in dims:
-            if dim not in self.da.dims:
-                raise ValueError(f"'{dim}' is not a valid dimension. Valid"
-                                 " dimensions are: " + ", ".join(self.da.dims))
-
     def _concat_list_of_dataarrays(self, das: list[xr.DataArray]) -> xr.DataArray:
         """Concatenate a list of DataArrays into a single DataArray."""
 
@@ -186,6 +196,7 @@ class DALoadByStep:
         return da
 
     def _pbar_message(self, subset: dict[Any, list[Any]]) -> str:
+        """Progess bar message."""
 
         size = self.da.sel(subset).size * self.itemsize_packed
 
@@ -211,12 +222,12 @@ class DALoadByStep:
         self._check_available_memory()
 
         # indexers OR indexers_kwargs is mandatory
-        indexers_kwargs = self.__class__._indexers_or_indexers_kwargs(indexers,
-                                                                      indexers_kwargs)
+        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(indexers,
+                                                                     indexers_kwargs)
 
-        self._check_dims(indexers_kwargs.keys())
+        self._check_dims(dims_and_steps.keys())
 
-        dims_and_subsets = self._create_dict_with_dims_and_subsets(indexers_kwargs)
+        dims_and_subsets = self._create_dict_with_dims_and_subsets(dims_and_steps)
 
         # this is the main iterable
         subsets = self._combine_dict_with_dims_and_subsets(dims_and_subsets)
@@ -232,8 +243,63 @@ class DALoadByStep:
 
         return da
 
+    def load(self) -> xr.DataArray:
+        """Same as the standard da.load(), but with a simple message saying
+        what is going to do."""
+
+        size = self.da.size * self.itemsize_packed
+
+        msg = (f"Donwloading '{bytesize_to_human_readable(size)}' of"
+               f" '{self.name}' in a single call")
+
+        print(msg)
+
+        return self.da.compute()
+
+
+@xr.register_dataset_accessor("lbs")
+class DSLoadByStep(DsDaMixin):
+
+    @property
+    def ds(self) -> xr.DataArray:
+        """Returns the DataSet itself."""
+        return self._obj
+
+    @validate_func_args_and_return
+    def load_by_step(self,
+                     indexers: Mapping[Any, int_ge_1] | None = None,
+                     time_between_requests: NonNegativeFloat = 0,
+                     **indexers_kwargs: int_ge_1 | None,
+                     ) -> xr.Dataset:
+
+        self._check_available_memory()
+
+        # indexers OR indexers_kwargs is mandatory
+        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(indexers,
+                                                                     indexers_kwargs)
+
+        self._check_dims(dims_and_steps.keys())
+
+        # apply load for each data variable
+        for var in list(self.ds.data_vars):
+            da = self.ds[var]
+
+            # keep only the dimension that exists in the DataArray
+            da_dims_and_steps = {dim: step
+                                 for dim, step in dims_and_steps.items()
+                                 if dim in da.dims}
+
+            if da_dims_and_steps:
+                self.ds[var] = da.lbs.load_by_step(
+                    time_between_requests=time_between_requests,
+                    **da_dims_and_steps)
+            else:
+                self.ds[var] = da.lbs.load()
+
+        return self.ds
+
 
 ds = xr.tutorial.open_dataset("air_temperature")
 da = ds["air"]
 
-da2 = da.lbs.load_by_step(time=100)
+# da2 = da.lbs.load_by_step(time=100, time_between_requests=2)
