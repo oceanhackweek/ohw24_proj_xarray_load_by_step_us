@@ -47,9 +47,10 @@ validator_1d_array = Annotated[
 def split_array(arr: validator_1d_array,
                 n: PositiveInt,
                 ) -> list[list[Any]]:
-    """Split a 1D array in lists with n elements in each list."""
+    """Split a 1D array in a list of lists with n elements in each list."""
 
-    # Use: list(x) instead of x.tolist() to preserve type of np.datetime64
+    # Use list(x) instead of x.tolist() to preserve type of np.datetime64
+    # Note: in Python >= 3.12 this can be done with itertools.batched
     return [list(x) for x in np.array_split(arr, range(n, arr.size, n))]
 
 
