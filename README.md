@@ -24,7 +24,7 @@ Xarray load-by-step
 A Xarray accessor to download large quantities of data from THREDDS server automatically breaking a large request in smaller requests to avoid server timeout.
 
 ## How to install?
-pip install load_by_step@git+https://github.com/oceanhackweek/ohw24_proj_xarray_load_by_step_us
+`pip install load_by_step@git+https://github.com/oceanhackweek/ohw24_proj_xarray_load_by_step_us`
 
 ## Planning
 
