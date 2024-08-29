@@ -327,8 +327,11 @@ class DSLoadByStep(DsDaMixin):
 
         self._check_dims(dims_and_steps.keys())
 
+        # use a copy so the state of self.ds is preserved
+        ds = self.ds.copy()
+
         # apply load for each data variable
-        for var in list(self.ds.data_vars):
+        for idx, var in enumerate(list(self.ds.data_vars)):
             da = self.ds[var]
 
             # keep only the dimension that exists in the DataArray
@@ -337,13 +340,15 @@ class DSLoadByStep(DsDaMixin):
                                  if dim in da.dims}
 
             if dims_and_steps_da:
-                self.ds[var] = da.lbs.load_by_step(
+                da_in_memory = da.lbs.load_by_step(
                     seconds_between_requests=seconds_between_requests,
                     **dims_and_steps_da)
             else:
-                self.ds[var] = da.lbs.load()
+                da_in_memory = da.lbs.load()
 
-        return self.ds
+            ds[var] = da_in_memory
+
+        return ds
 
     @validate_func_args_and_return
     def load_and_save_by_step(self,
