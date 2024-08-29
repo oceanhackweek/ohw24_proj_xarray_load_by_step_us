@@ -10,36 +10,13 @@ __all__ = [
 
 from typing import Any, Mapping, Annotated
 from pydantic import (validate_call, Field, ByteSize, AfterValidator,
-                      PositiveInt, NonNegativeFloat)
+                      PositiveInt, NonNegativeFloat, NewPath)
 import itertools
 import psutil
 import numpy as np
 import xarray as xr
 from tqdm import tqdm
 import time
-
-
-# >>> url = "https://tds.hycom.org/thredds/dodsC/GLBy0.08/expt_93.0"
-# >>> ds = xr.open_dataset(url, drop_variables="tau")
-# >>> da = ds["water_u"]
-# >>> da = da.sel(lon=slice(-54 + 360, -31 + 360), lat=slice(-36, 7))
-# >>> da._in_memory
-# False
-# >>> da.load()
-# MemoryError: Unable to allocate 386. GiB for an array with shape (16729, 40, 1076, 288) and data type int16
-# >>> da = da.sel(time=slice("2024-01-01", "2024-01-10"))
-
-# >>> da.load()
-# # after a few (~7) minutes, you get this error message
-# oc_open: server error retrieving url: code=? message="Error {
-#     code = 500;
-#     message = "java.net.SocketTimeoutException: Read timed out; water_u -- 14821:14900,0:39,1100:2175,3825:4112";
-# }"
-# # after some time, you get the same message again
-# }"oc_open: server error retrieving url: code=? message="Error {
-#     code = 500;
-#     message = "java.net.SocketTimeoutException: Read timed out; water_u -- 14821:14900,0:39,1100:2175,3825:4112";
-# }"
 
 
 validate_func_args_and_return = validate_call(
@@ -205,11 +182,13 @@ class DALoadByStep(DsDaMixin):
 
     @validate_func_args_and_return
     def load_by_step(self,
+                     *,
                      indexers: Mapping[str, PositiveInt] | None = None,
                      time_between_requests: NonNegativeFloat = 0,
                      **indexers_kwargs: PositiveInt | None,
                      ) -> xr.DataArray:
-        """Load a DataArray in memory incrementally.
+        """Load the DataArray in memory splitting the loading process along one
+        or more dimensions.
 
         This is useful to download large quantities of data from a THREDDS
         server automatically breaking the large request in smaller requests
@@ -230,17 +209,18 @@ class DALoadByStep(DsDaMixin):
         Returns
         -------
         xr.DataArray
+            DatArray loaded in memory.
 
         Examples
         --------
         This example reads data from a local file just for demonstration
         purpose. A real aplication would be to read data from a THREDDS server.
 
-        >>> ds = xr.tutorial.open_dataset("air_temperature")
-        >>> da = ds["air"]
+        >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
+        >>> da = ds["Tair"]
         >>> da._in_memory
         False
-        >>> da2 = da.lbs.load_by_step(time=100, lat=25, time_between_requests=1)
+        >>> da2 = da.lbs.load_by_step(time=500, lon=30, time_between_requests=1)
         >>> da2._in_memory
         True
 
@@ -275,8 +255,7 @@ class DALoadByStep(DsDaMixin):
         return da
 
     def load(self) -> xr.DataArray:
-        """Same as the standard da.load(), but with a simple message saying
-        what is going to do."""
+        """Same as the standard da.load()."""
 
         size = self.da.size * self.itemsize_packed
 
@@ -298,11 +277,13 @@ class DSLoadByStep(DsDaMixin):
 
     @validate_func_args_and_return
     def load_by_step(self,
+                     *,
                      indexers: Mapping[str, PositiveInt] | None = None,
                      time_between_requests: NonNegativeFloat = 0,
                      **indexers_kwargs: PositiveInt | None,
                      ) -> xr.Dataset:
-        """Load a Dataset in memory incrementally.
+        """Load the Dataset in memory splitting the loading process along one
+        or more dimensions.
 
         This is useful to download large quantities of data from a THREDDS
         server automatically breaking the large request in smaller requests
@@ -323,14 +304,15 @@ class DSLoadByStep(DsDaMixin):
         Returns
         -------
         xr.Dataset
+            Dataset loaded in memory
 
         Examples
         --------
         This example reads data from a local file just for demonstration
         purpose. A real aplication would be to read data from a THREDDS server.
 
-        >>> ds = xr.tutorial.open_dataset("air_temperature")
-        >>> ds2 = ds.lbs.load_by_step(time=100, lat=25, time_between_requests=1)
+        >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
+        >>> ds2 = ds.lbs.load_by_step(time=500, lon=30, time_between_requests=1)
 
         """
 
@@ -359,3 +341,77 @@ class DSLoadByStep(DsDaMixin):
                 self.ds[var] = da.lbs.load()
 
         return self.ds
+
+    @validate_func_args_and_return
+    def load_and_save_by_step(self,
+                              *,
+                              indexers: Mapping[str, PositiveInt] | None = None,
+                              outfile: Annotated[NewPath, Field(strict=False)],
+                              time_between_requests: NonNegativeFloat = 0,
+                              **indexers_kwargs: PositiveInt | None,
+                              ) -> None:
+        """Loop through DataArrays in a Dataset, loading each in memory
+        splitting the loading process along one or more dimensions and save
+        to outfile before freeing the memory and repeating the process for the
+        next DataArray.
+
+        This is useful to download large quantities of data from a THREDDS
+        server automatically breaking the large request in smaller requests
+        to avoid server timeout.
+
+        Parameters
+        ----------
+        indexers : dict, optional
+            A dict with keys matching dimensions and values given by positive
+            integers.
+            One of indexers or indexers_kwargs must be provided.
+        outfile : Path, str
+            File to save the data into.
+        time_between_requests : float, optional
+            Wait time in seconds between requests.
+        **indexers_kwargs : {dim: indexer, ...}, optional
+            The keyword arguments form of ``indexers``.
+            One of indexers or indexers_kwargs must be provided.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        This example reads data from a local file just for demonstration
+        purpose. A real aplication would be to read data from a THREDDS server.
+
+        >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
+        >>> ds.lbs.load_and_save_by_step(time=500,
+                                         lon=30,
+                                         outfile="/tmp/foo.nc",
+                                         time_between_requests=1)
+
+        """
+
+        # indexers OR indexers_kwargs is mandatory
+        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(indexers,
+                                                                     indexers_kwargs)
+
+        self._check_dims(dims_and_steps.keys())
+
+        # apply load for each data variable
+        for idx, var in enumerate(list(self.ds.data_vars)):
+            da = self.ds[var]
+
+            # keep only the dimension that exists in the DataArray
+            da_dims_and_steps = {dim: step
+                                 for dim, step in dims_and_steps.items()
+                                 if dim in da.dims}
+
+            if da_dims_and_steps:
+                da_in_memory = da.lbs.load_by_step(
+                    time_between_requests=time_between_requests,
+                    **da_dims_and_steps)
+            else:
+                da_in_memory = da.lbs.load()
+
+            # create file in first iteration and then append
+            da_in_memory.to_netcdf(outfile,
+                                   mode="a" if idx else "w")
