@@ -230,6 +230,7 @@ class DALoadByStep(DsDaMixin):
         if self.da._in_memory:
             return self.da
 
+        # check if the whole DataArray can fit in memory
         self._check_available_memory()
 
         # indexers OR indexers_kwargs is mandatory
@@ -316,6 +317,7 @@ class DSLoadByStep(DsDaMixin):
 
         """
 
+        # check if the whole Dataset can fit in memory
         self._check_available_memory()
 
         # indexers OR indexers_kwargs is mandatory
@@ -329,14 +331,14 @@ class DSLoadByStep(DsDaMixin):
             da = self.ds[var]
 
             # keep only the dimension that exists in the DataArray
-            da_dims_and_steps = {dim: step
+            dims_and_steps_da = {dim: step
                                  for dim, step in dims_and_steps.items()
                                  if dim in da.dims}
 
-            if da_dims_and_steps:
+            if dims_and_steps_da:
                 self.ds[var] = da.lbs.load_by_step(
                     time_between_requests=time_between_requests,
-                    **da_dims_and_steps)
+                    **dims_and_steps_da)
             else:
                 self.ds[var] = da.lbs.load()
 
@@ -401,14 +403,14 @@ class DSLoadByStep(DsDaMixin):
             da = self.ds[var]
 
             # keep only the dimension that exists in the DataArray
-            da_dims_and_steps = {dim: step
+            dims_and_steps_da = {dim: step
                                  for dim, step in dims_and_steps.items()
                                  if dim in da.dims}
 
-            if da_dims_and_steps:
+            if dims_and_steps_da:
                 da_in_memory = da.lbs.load_by_step(
                     time_between_requests=time_between_requests,
-                    **da_dims_and_steps)
+                    **dims_and_steps_da)
             else:
                 da_in_memory = da.lbs.load()
 
