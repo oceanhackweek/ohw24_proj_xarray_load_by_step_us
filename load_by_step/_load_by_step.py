@@ -185,7 +185,7 @@ class DALoadByStep(DsDaMixin):
     def load_by_step(self,
                      *,
                      indexers: Mapping[str, PositiveInt] | None = None,
-                     time_between_requests: NonNegativeFloat = 0,
+                     seconds_between_requests: NonNegativeFloat = 0,
                      **indexers_kwargs: PositiveInt | None,
                      ) -> xr.DataArray:
         """Load the DataArray in memory splitting the loading process along one
@@ -201,7 +201,7 @@ class DALoadByStep(DsDaMixin):
             A dict with keys matching dimensions and values given by positive
             integers.
             One of indexers or indexers_kwargs must be provided.
-        time_between_requests : float, optional
+        seconds_between_requests : float, optional
             Wait time in seconds between requests.
         **indexers_kwargs : {dim: indexer, ...}, optional
             The keyword arguments form of ``indexers``.
@@ -221,7 +221,7 @@ class DALoadByStep(DsDaMixin):
         >>> da = ds["Tair"]
         >>> da._in_memory
         False
-        >>> da2 = da.lbs.load_by_step(time=500, lon=30, time_between_requests=1)
+        >>> da2 = da.lbs.load_by_step(time=500, lon=30, seconds_between_requests=1)
         >>> da2._in_memory
         True
 
@@ -250,7 +250,7 @@ class DALoadByStep(DsDaMixin):
             for subset in pbar:
                 pbar.set_description(self._pbar_message(subset))
                 das.append(self.da.sel(**subset).compute())
-                time.sleep(time_between_requests)
+                time.sleep(seconds_between_requests)
 
         da = self._concat_list_of_dataarrays(das)
 
@@ -281,7 +281,7 @@ class DSLoadByStep(DsDaMixin):
     def load_by_step(self,
                      *,
                      indexers: Mapping[str, PositiveInt] | None = None,
-                     time_between_requests: NonNegativeFloat = 0,
+                     seconds_between_requests: NonNegativeFloat = 0,
                      **indexers_kwargs: PositiveInt | None,
                      ) -> xr.Dataset:
         """Load the Dataset in memory splitting the loading process along one
@@ -297,7 +297,7 @@ class DSLoadByStep(DsDaMixin):
             A dict with keys matching dimensions and values given by positive
             integers.
             One of indexers or indexers_kwargs must be provided.
-        time_between_requests : float, optional
+        seconds_between_requests : float, optional
             Wait time in seconds between requests.
         **indexers_kwargs : {dim: indexer, ...}, optional
             The keyword arguments form of ``indexers``.
@@ -314,7 +314,7 @@ class DSLoadByStep(DsDaMixin):
         purpose. A real aplication would be to read data from a THREDDS server.
 
         >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
-        >>> ds2 = ds.lbs.load_by_step(time=500, lon=30, time_between_requests=1)
+        >>> ds2 = ds.lbs.load_by_step(time=500, lon=30, seconds_between_requests=1)
 
         """
 
@@ -338,7 +338,7 @@ class DSLoadByStep(DsDaMixin):
 
             if dims_and_steps_da:
                 self.ds[var] = da.lbs.load_by_step(
-                    time_between_requests=time_between_requests,
+                    seconds_between_requests=seconds_between_requests,
                     **dims_and_steps_da)
             else:
                 self.ds[var] = da.lbs.load()
@@ -350,7 +350,7 @@ class DSLoadByStep(DsDaMixin):
                               *,
                               indexers: Mapping[str, PositiveInt] | None = None,
                               outfile: Annotated[NewPath, Field(strict=False)],
-                              time_between_requests: NonNegativeFloat = 0,
+                              seconds_between_requests: NonNegativeFloat = 0,
                               **indexers_kwargs: PositiveInt | None,
                               ) -> None:
         """Loop through DataArrays in a Dataset, loading each in memory
@@ -370,7 +370,7 @@ class DSLoadByStep(DsDaMixin):
             One of indexers or indexers_kwargs must be provided.
         outfile : Path, str
             File to save the data into.
-        time_between_requests : float, optional
+        seconds_between_requests : float, optional
             Wait time in seconds between requests.
         **indexers_kwargs : {dim: indexer, ...}, optional
             The keyword arguments form of ``indexers``.
@@ -389,7 +389,7 @@ class DSLoadByStep(DsDaMixin):
         >>> ds.lbs.load_and_save_by_step(time=500,
                                          lon=30,
                                          outfile="/tmp/foo.nc",
-                                         time_between_requests=1)
+                                         seconds_between_requests=1)
 
         """
 
@@ -410,7 +410,7 @@ class DSLoadByStep(DsDaMixin):
 
             if dims_and_steps_da:
                 da_in_memory = da.lbs.load_by_step(
-                    time_between_requests=time_between_requests,
+                    seconds_between_requests=seconds_between_requests,
                     **dims_and_steps_da)
             else:
                 da_in_memory = da.lbs.load()
