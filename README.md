@@ -1,24 +1,14 @@
-# ohwyy_proj_template_cc
+# XArray load_by_step: An accessor for loading huge files from a THREDDS server  
 
-Template for starting Oceanhackweek project repos. Add country code (cc) in the end to indicate the location of your event (us/au).
-
-This repo is an example of how teams can structure their project repositories and format their project README.md file, but feel free to adapt as suits your needs.
+OceanHackWeek 2024 Project done by [Marcelo Andrioni](https://github.com/marceloandrioni) and [João Pedro Amorim](https://github.com/joaopedroamorim) in which the main goal was to develop a xarray function capable of loading huge amounts of data accessed trough a THREDDS server.  
 
 **Folder Structure**
 
-* `contributor_folders` Each contributor can make a folder here and 
-push their work here during the week. This will allow everyone to see each others work but prevent any merge conflicts.
-* `final_notebooks` When the team develops shared final notebooks, they 
-can be shared here. Make sure to communicate so that you limit merge conflicts.
-* `scripts` Shared scripts or functions can be added here.
-* `data` Shared dataset can be shared here. Note, do not put large datasets on GitHub. Speak to the organizers if you 
-need to share large datasets. Each team member can have a version of the dataset locally in the same folder to 
-preserve relative paths, but the dataset does not need to be added to git/GitHub (you can use `.gitignore`).
-
-You can start with a simple structure and as you progress you can refine it to contain more components. [Here](https://cookiecutter-data-science.drivendata.org/#directory-structure) is an example of a more elaborate structure for a data science project.
+* `src/load_by_step` Contains the main functions necessary to use the **_load_by_step()_** accessor
+* `final_notebooks` Contains the main notebooks with examples of using the **_load_by_step()_** accessor
 
 ## Project Name
-Xarray load-by-step
+xarray load-by-step
 
 ## One-line Description
 A Xarray accessor to download large quantities of data from THREDDS server automatically breaking a large request in smaller requests to avoid server timeout.
