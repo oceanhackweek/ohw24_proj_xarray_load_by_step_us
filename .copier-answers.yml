@@ -1,0 +1,13 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: 2024.08.19
+_src_path: gh:scientific-python/cookie
+backend: hatch
+email: akerney@gmri.org
+full_name: Alex Kerney
+license: MIT
+org: oceanhackweek
+project_name: load_by_step
+project_short_description: A xarray accessor to retrieve large quantities of data
+    from a THREDDS server splitting the request in smaller requests.
+url: https://github.com/oceanhackweek/ohw24_proj_xarray_load_by_step_us
+vcs: true
