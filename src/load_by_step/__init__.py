@@ -9,4 +9,5 @@ from __future__ import annotations
 from ._version import version as __version__
 
 from ._load_by_step import *
+from ._options import *
 

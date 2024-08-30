@@ -9,14 +9,17 @@ __all__ = [
 
 
 from typing import Any, Mapping, Annotated
-from pydantic import (validate_call, Field, ByteSize, AfterValidator,
-                      PositiveInt, NonNegativeFloat, NewPath)
+from pydantic import (validate_call, Field, TypeAdapter, AfterValidator,
+                      ByteSize, PositiveInt, NonNegativeFloat, NewPath)
 import itertools
 import psutil
 import numpy as np
 import xarray as xr
 from tqdm import tqdm
 import time
+
+from ._options import OPTIONS
+# OPTIONS = {"tqdm_disable": False}
 
 
 validate_func_args_and_return = validate_call(
@@ -56,7 +59,13 @@ def split_array(arr: validator_1d_array,
 
 @validate_func_args_and_return
 def bytesize_to_human_readable(size: int) -> str:
-    return ByteSize(size).human_readable(decimal=True)
+    return TypeAdapter(ByteSize).validate_python(size).human_readable(decimal=True)
+
+
+@validate_func_args_and_return
+def to_bytesize(size: int | str) -> int:
+    """Convert int or str to bytesize."""
+    return int(TypeAdapter(ByteSize).validate_python(size, strict=True))
 
 
 class DsDaMixin:
@@ -168,12 +177,12 @@ class DALoadByStep(DsDaMixin):
 
         return da
 
-    def _pbar_message(self, subset: dict[Any, list[Any]]) -> str:
-        """Progess bar message."""
+    def _loading_message(self, subset: dict[Any, list[Any]]) -> str:
+        """Loading message."""
 
-        size = self.da.sel(subset).size * self.itemsize_packed
+        bytesize = self.da.sel(subset).size * self.itemsize_packed
 
-        preffix = (f"Donwloading '{bytesize_to_human_readable(size)}' of"
+        preffix = (f"Loading '{bytesize_to_human_readable(bytesize)}' of"
                    f" '{self.name}' between ")
 
         msg = ", ".join([f"{k}=[{v[0]}, {v[-1]}]"
@@ -246,9 +255,16 @@ class DALoadByStep(DsDaMixin):
         subsets = self._combine_dict_with_dims_and_subsets(dims_and_subsets)
 
         das = []
-        with tqdm(subsets) as pbar:
+        with tqdm(subsets, disable=OPTIONS["tqdm_disable"]) as pbar:
             for subset in pbar:
-                pbar.set_description(self._pbar_message(subset))
+
+                # if tqdm is disable, just print it to the console
+                msg = self._loading_message(subset)
+                if OPTIONS["tqdm_disable"]:
+                    print(msg)
+                else:
+                    pbar.set_description(msg)
+
                 das.append(self.da.sel(**subset).compute())
                 time.sleep(seconds_between_requests)
 
@@ -256,12 +272,68 @@ class DALoadByStep(DsDaMixin):
 
         return da
 
+    @validate_func_args_and_return
+    def load_by_bytesize(self,
+                         *,
+                         indexers: Mapping[str, PositiveInt | str] | None = None,
+                         seconds_between_requests: NonNegativeFloat = 0,
+                         **indexers_kwargs: PositiveInt | str | None,
+                         ) -> xr.DataArray:
+        """
+
+        Examples
+        --------
+        This example reads data from a local file just for demonstration
+        purpose. A real aplication would be to read data from a THREDDS server.
+
+        >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
+        >>> da = ds["Tair"]
+        >>> da._in_memory
+        False
+        >>> da2 = da.lbs.load_by_bytesize(time="1MB", seconds_between_requests=1)
+        >>> da2._in_memory
+        True
+
+        """
+
+        # indexers OR indexers_kwargs is mandatory
+        dim_and_bytesize = self.__class__._indexers_or_indexers_kwargs(indexers,
+                                                                       indexers_kwargs)
+
+        self._check_dims(dim_and_bytesize.keys())
+
+        if len(dim_and_bytesize) != 1:
+            raise ValueError("When using load_by_bytesize only one dimension"
+                             "can be passed.")
+
+        dim, bytesize = list(dim_and_bytesize.items())[0]
+
+        # convert to int if bytesize is a str, e.g.: "10MB"
+        bytesize = to_bytesize(bytesize)
+
+        step = int(bytesize
+                   / (self.itemsize_packed * self.da.size / self.da[dim].size))
+
+        if step > self.da[dim].size:
+            return self.da.lbs.load()
+
+        if step < 1:
+            raise ValueError(
+                "It is not possible to load blocks of"
+                f" '{bytesize_to_human_readable(bytesize)}' along dimension"
+                f" '{dim}' even when using step=1. Consider increasing the size"
+                " or calling split_by_step and splitting along a second"
+                " dimension.")
+
+        return self.load_by_step(**{dim: step},
+                                 seconds_between_requests=seconds_between_requests)
+
     def load(self) -> xr.DataArray:
         """Same as the standard da.load()."""
 
-        size = self.da.size * self.itemsize_packed
+        bytesize = self.da.size * self.itemsize_packed
 
-        msg = (f"Donwloading '{bytesize_to_human_readable(size)}' of"
+        msg = (f"Donwloading '{bytesize_to_human_readable(bytesize)}' of"
                f" '{self.name}' in a single call")
 
         print(msg)
@@ -327,8 +399,11 @@ class DSLoadByStep(DsDaMixin):
 
         self._check_dims(dims_and_steps.keys())
 
+        # use a copy so the state of self.ds is preserved
+        ds = self.ds.copy()
+
         # apply load for each data variable
-        for var in list(self.ds.data_vars):
+        for idx, var in enumerate(list(self.ds.data_vars)):
             da = self.ds[var]
 
             # keep only the dimension that exists in the DataArray
@@ -337,13 +412,15 @@ class DSLoadByStep(DsDaMixin):
                                  if dim in da.dims}
 
             if dims_and_steps_da:
-                self.ds[var] = da.lbs.load_by_step(
+                da_in_memory = da.lbs.load_by_step(
                     seconds_between_requests=seconds_between_requests,
                     **dims_and_steps_da)
             else:
-                self.ds[var] = da.lbs.load()
+                da_in_memory = da.lbs.load()
 
-        return self.ds
+            ds[var] = da_in_memory
+
+        return ds
 
     @validate_func_args_and_return
     def load_and_save_by_step(self,
