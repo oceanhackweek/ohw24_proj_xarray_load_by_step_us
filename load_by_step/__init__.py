@@ -3,3 +3,4 @@
 
 
 from ._load_by_step import *
+from ._options import *
