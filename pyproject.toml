@@ -187,6 +187,4 @@ jupyterlab = "*"
 
 [tool.pixi.feature.local.tasks]
 lab = "jupyter-lab"
-
-[tool.pixi.feature.dev.tasks]
 pre-commit = "pre-commit run --all-files"
