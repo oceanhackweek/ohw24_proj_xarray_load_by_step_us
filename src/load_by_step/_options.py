@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
+from __future__ import annotations
 
 __all__ = [
     "set_options",
@@ -8,17 +6,14 @@ __all__ = [
 ]
 
 
-OPTIONS = dict(
-    tqdm_disable=False,
-)
+OPTIONS = {"tqdm_disable": False}
 
 
 class set_options:
-
-    def __init__(self,
-                 tqdm_disable: bool = False,
-                 ) -> None:
-
+    def __init__(
+        self,
+        tqdm_disable: bool = False,
+    ) -> None:
         OPTIONS["tqdm_disable"] = tqdm_disable
 
 

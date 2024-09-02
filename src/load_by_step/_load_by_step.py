@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
+from __future__ import annotations
 
 __all__ = [
     "DALoadByStep",
@@ -8,25 +6,32 @@ __all__ = [
 ]
 
 
-from typing import Any, Mapping, Annotated
-from pydantic import (validate_call, Field, TypeAdapter, AfterValidator,
-                      ByteSize, PositiveInt, NonNegativeFloat, NewPath)
 import itertools
-import psutil
-import numpy as np
-import xarray as xr
-from tqdm import tqdm
 import time
+from collections.abc import Mapping
+from typing import Annotated, Any
+
+import numpy as np
+import psutil
+import xarray as xr
+from pydantic import (
+    AfterValidator,
+    ByteSize,
+    Field,
+    NewPath,
+    NonNegativeFloat,
+    PositiveInt,
+    TypeAdapter,
+    validate_call,
+)
+from tqdm import tqdm
 
 from ._options import OPTIONS
-# OPTIONS = {"tqdm_disable": False}
-
 
 validate_func_args_and_return = validate_call(
-    config=dict(strict=True,
-                arbitrary_types_allowed=True,
-                validate_default=True),
-    validate_return=True)
+    config={"strict": True, "arbitrary_types_allowed": True, "validate_default": True},
+    validate_return=True,
+)
 
 
 def validate_array_is_1d(arr: np.ndarray) -> np.ndarray:
@@ -47,9 +52,10 @@ validator_1d_array = Annotated[
 
 
 @validate_func_args_and_return
-def split_array(arr: validator_1d_array,
-                n: PositiveInt,
-                ) -> list[list[Any]]:
+def split_array(
+    arr: validator_1d_array,
+    n: PositiveInt,
+) -> list[list[Any]]:
     """Split a 1D array in a list of lists with n elements in each list."""
 
     # Use list(x) instead of x.tolist() to preserve type of np.datetime64
@@ -80,17 +86,19 @@ class DsDaMixin:
         return self._obj
 
     @classmethod
-    def _indexers_or_indexers_kwargs(cls,
-                                     indexers: dict[Any, Any] | None,
-                                     indexers_kwargs: dict[Any, Any] | None,
-                                     ) -> dict[Any, Any]:
+    def _indexers_or_indexers_kwargs(
+        cls,
+        indexers: dict[Any, Any] | None,
+        indexers_kwargs: dict[Any, Any] | None,
+    ) -> dict[Any, Any]:
         """Check if indexers OR indexers_kwargs was given and return it."""
 
         input_args = [indexers, indexers_kwargs]
 
-        m = list(map(lambda x: 1 if x else 0, input_args))
+        m = [1 if x else 0 for x in input_args]
         if sum(m) != 1:
-            raise ValueError("indexers OR indexers_kwargs must be given")
+            error_message = "indexers OR indexers_kwargs must be given"
+            raise ValueError(error_message)
 
         return input_args[m.index(1)]
 
@@ -99,24 +107,26 @@ class DsDaMixin:
 
         for dim in dims:
             if dim not in self.dx.dims:
-                raise ValueError(f"'{dim}' is not a valid dimension. Valid"
-                                 " dimensions are: " + ", ".join(self.dx.dims))
+                raise ValueError(
+                    f"'{dim}' is not a valid dimension. Valid"
+                    " dimensions are: " + ", ".join(self.dx.dims)
+                )
 
     def _check_available_memory(self) -> None:
         """Raise an error if there is no free memory to hold the full data."""
 
         if (free_memory := psutil.virtual_memory().available) < self.dx.nbytes:
-
-            err_msg = ("The unpacked data needs"
-                       f" {bytesize_to_human_readable(self.da.nbytes)} but the"
-                       f" system only has {bytesize_to_human_readable(free_memory)}")
+            err_msg = (
+                "The unpacked data needs"
+                f" {bytesize_to_human_readable(self.da.nbytes)} but the"
+                f" system only has {bytesize_to_human_readable(free_memory)}"
+            )
 
             raise MemoryError(err_msg)
 
 
 @xr.register_dataarray_accessor("lbs")
 class DALoadByStep(DsDaMixin):
-
     @property
     def da(self) -> xr.DataArray:
         """Returns the DataArray itself."""
@@ -134,20 +144,20 @@ class DALoadByStep(DsDaMixin):
         # da.dtype is the dtype of the "unpacked" data, after applying
         #   scale_factor, add_offset, etc.
         # da.encoding.dtype is the "packed" dtype, the one that was actually
-        #   used when writting the data to disk.
+        #   used when writing the data to disk.
 
         dtype = self.da.encoding.get("dtype", self.da.dtype)
         return np.dtype(dtype).itemsize
 
     @validate_func_args_and_return
     def _create_dict_with_dims_and_subsets(
-            self,
-            dims_and_steps: dict[str, int],
+        self,
+        dims_and_steps: dict[str, int],
     ) -> dict[str, list[list[Any]]]:
         """Return dict with dimensions as keys and list of lists of subsets
         as values."""
 
-        dims_and_subsets = dict()
+        dims_and_subsets = {}
         for dim, step in dims_and_steps.items():
             dims_and_subsets[dim] = split_array(self.da[dim].values, step)
 
@@ -155,14 +165,16 @@ class DALoadByStep(DsDaMixin):
 
     @validate_func_args_and_return
     def _combine_dict_with_dims_and_subsets(
-            self,
-            dims_and_subsets: dict[str, list[list[Any]]],
+        self,
+        dims_and_subsets: dict[str, list[list[Any]]],
     ) -> list[dict[str, list[Any]]]:
         """Return list of dicts with dimensions as keys and list of subsets
         as values."""
 
-        return [dict(zip(dims_and_subsets.keys(), values))
-                for values in itertools.product(*dims_and_subsets.values())]
+        return [
+            dict(zip(dims_and_subsets.keys(), values, strict=False))
+            for values in itertools.product(*dims_and_subsets.values())
+        ]
 
     def _concat_list_of_dataarrays(self, das: list[xr.DataArray]) -> xr.DataArray:
         """Concatenate a list of DataArrays into a single DataArray."""
@@ -171,7 +183,7 @@ class DALoadByStep(DsDaMixin):
 
         # xr.combine_by_coords returns a Dataset if da.name is not None
         if isinstance(da, xr.Dataset):
-            da = da[list(da.data_vars)[0]]
+            da = da[next(iter(da.data_vars))]
 
         da.attrs, da.encoding = self.da.attrs, self.da.encoding
 
@@ -182,21 +194,23 @@ class DALoadByStep(DsDaMixin):
 
         bytesize = self.da.sel(subset).size * self.itemsize_packed
 
-        preffix = (f"Loading '{bytesize_to_human_readable(bytesize)}' of"
-                   f" '{self.name}' between ")
+        prefix = (
+            f"Loading '{bytesize_to_human_readable(bytesize)}' of"
+            f" '{self.name}' between "
+        )
 
-        msg = ", ".join([f"{k}=[{v[0]}, {v[-1]}]"
-                         for k, v in subset.items()])
+        msg = ", ".join([f"{k}=[{v[0]}, {v[-1]}]" for k, v in subset.items()])
 
-        return f"{preffix}{msg}"
+        return f"{prefix}{msg}"
 
     @validate_func_args_and_return
-    def load_by_step(self,
-                     *,
-                     indexers: Mapping[str, PositiveInt] | None = None,
-                     seconds_between_requests: NonNegativeFloat = 0,
-                     **indexers_kwargs: PositiveInt | None,
-                     ) -> xr.DataArray:
+    def load_by_step(
+        self,
+        *,
+        indexers: Mapping[str, PositiveInt] | None = None,
+        seconds_between_requests: NonNegativeFloat = 0,
+        **indexers_kwargs: PositiveInt | None,
+    ) -> xr.DataArray:
         """Load the DataArray in memory splitting the loading process along one
         or more dimensions.
 
@@ -224,7 +238,7 @@ class DALoadByStep(DsDaMixin):
         Examples
         --------
         This example reads data from a local file just for demonstration
-        purpose. A real aplication would be to read data from a THREDDS server.
+        purpose. A real application would be to read data from a THREDDS server.
 
         >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
         >>> da = ds["Tair"]
@@ -244,8 +258,9 @@ class DALoadByStep(DsDaMixin):
         self._check_available_memory()
 
         # indexers OR indexers_kwargs is mandatory
-        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(indexers,
-                                                                     indexers_kwargs)
+        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(
+            indexers, indexers_kwargs
+        )
 
         self._check_dims(dims_and_steps.keys())
 
@@ -257,7 +272,6 @@ class DALoadByStep(DsDaMixin):
         das = []
         with tqdm(subsets, disable=OPTIONS["tqdm_disable"]) as pbar:
             for subset in pbar:
-
                 # if tqdm is disable, just print it to the console
                 msg = self._loading_message(subset)
                 if OPTIONS["tqdm_disable"]:
@@ -268,23 +282,22 @@ class DALoadByStep(DsDaMixin):
                 das.append(self.da.sel(**subset).compute())
                 time.sleep(seconds_between_requests)
 
-        da = self._concat_list_of_dataarrays(das)
-
-        return da
+        return self._concat_list_of_dataarrays(das)
 
     @validate_func_args_and_return
-    def load_by_bytesize(self,
-                         *,
-                         indexers: Mapping[str, PositiveInt | str] | None = None,
-                         seconds_between_requests: NonNegativeFloat = 0,
-                         **indexers_kwargs: PositiveInt | str | None,
-                         ) -> xr.DataArray:
+    def load_by_bytesize(
+        self,
+        *,
+        indexers: Mapping[str, PositiveInt | str] | None = None,
+        seconds_between_requests: NonNegativeFloat = 0,
+        **indexers_kwargs: PositiveInt | str | None,
+    ) -> xr.DataArray:
         """
 
         Examples
         --------
         This example reads data from a local file just for demonstration
-        purpose. A real aplication would be to read data from a THREDDS server.
+        purpose. A real application would be to read data from a THREDDS server.
 
         >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
         >>> da = ds["Tair"]
@@ -297,44 +310,51 @@ class DALoadByStep(DsDaMixin):
         """
 
         # indexers OR indexers_kwargs is mandatory
-        dim_and_bytesize = self.__class__._indexers_or_indexers_kwargs(indexers,
-                                                                       indexers_kwargs)
+        dim_and_bytesize = self.__class__._indexers_or_indexers_kwargs(
+            indexers, indexers_kwargs
+        )
 
         self._check_dims(dim_and_bytesize.keys())
 
         if len(dim_and_bytesize) != 1:
-            raise ValueError("When using load_by_bytesize only one dimension"
-                             "can be passed.")
+            error_message = (
+                "When using load_by_bytesize only one dimension can be passed."
+            )
+            raise ValueError(error_message)
 
-        dim, bytesize = list(dim_and_bytesize.items())[0]
+        dim, bytesize = next(iter(dim_and_bytesize.items()))
 
         # convert to int if bytesize is a str, e.g.: "10MB"
         bytesize = to_bytesize(bytesize)
 
-        step = int(bytesize
-                   / (self.itemsize_packed * self.da.size / self.da[dim].size))
+        step = int(bytesize / (self.itemsize_packed * self.da.size / self.da[dim].size))
 
         if step > self.da[dim].size:
             return self.da.lbs.load()
 
         if step < 1:
-            raise ValueError(
+            error_message = (
                 "It is not possible to load blocks of"
                 f" '{bytesize_to_human_readable(bytesize)}' along dimension"
                 f" '{dim}' even when using step=1. Consider increasing the size"
                 " or calling split_by_step and splitting along a second"
-                " dimension.")
+                " dimension."
+            )
+            raise ValueError(error_message)
 
-        return self.load_by_step(**{dim: step},
-                                 seconds_between_requests=seconds_between_requests)
+        return self.load_by_step(
+            **{dim: step}, seconds_between_requests=seconds_between_requests
+        )
 
     def load(self) -> xr.DataArray:
         """Same as the standard da.load()."""
 
         bytesize = self.da.size * self.itemsize_packed
 
-        msg = (f"Donwloading '{bytesize_to_human_readable(bytesize)}' of"
-               f" '{self.name}' in a single call")
+        msg = (
+            f"Downloading '{bytesize_to_human_readable(bytesize)}' of"
+            f" '{self.name}' in a single call"
+        )
 
         print(msg)
 
@@ -343,19 +363,19 @@ class DALoadByStep(DsDaMixin):
 
 @xr.register_dataset_accessor("lbs")
 class DSLoadByStep(DsDaMixin):
-
     @property
     def ds(self) -> xr.DataArray:
         """Returns the DataSet itself."""
         return self._obj
 
     @validate_func_args_and_return
-    def load_by_step(self,
-                     *,
-                     indexers: Mapping[str, PositiveInt] | None = None,
-                     seconds_between_requests: NonNegativeFloat = 0,
-                     **indexers_kwargs: PositiveInt | None,
-                     ) -> xr.Dataset:
+    def load_by_step(
+        self,
+        *,
+        indexers: Mapping[str, PositiveInt] | None = None,
+        seconds_between_requests: NonNegativeFloat = 0,
+        **indexers_kwargs: PositiveInt | None,
+    ) -> xr.Dataset:
         """Load the Dataset in memory splitting the loading process along one
         or more dimensions.
 
@@ -383,7 +403,7 @@ class DSLoadByStep(DsDaMixin):
         Examples
         --------
         This example reads data from a local file just for demonstration
-        purpose. A real aplication would be to read data from a THREDDS server.
+        purpose. A real application would be to read data from a THREDDS server.
 
         >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
         >>> ds2 = ds.lbs.load_by_step(time=500, lon=30, seconds_between_requests=1)
@@ -394,8 +414,9 @@ class DSLoadByStep(DsDaMixin):
         self._check_available_memory()
 
         # indexers OR indexers_kwargs is mandatory
-        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(indexers,
-                                                                     indexers_kwargs)
+        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(
+            indexers, indexers_kwargs
+        )
 
         self._check_dims(dims_and_steps.keys())
 
@@ -403,18 +424,19 @@ class DSLoadByStep(DsDaMixin):
         ds = self.ds.copy()
 
         # apply load for each data variable
-        for idx, var in enumerate(list(self.ds.data_vars)):
+        for _, var in enumerate(list(self.ds.data_vars)):
             da = self.ds[var]
 
             # keep only the dimension that exists in the DataArray
-            dims_and_steps_da = {dim: step
-                                 for dim, step in dims_and_steps.items()
-                                 if dim in da.dims}
+            dims_and_steps_da = {
+                dim: step for dim, step in dims_and_steps.items() if dim in da.dims
+            }
 
             if dims_and_steps_da:
                 da_in_memory = da.lbs.load_by_step(
                     seconds_between_requests=seconds_between_requests,
-                    **dims_and_steps_da)
+                    **dims_and_steps_da,
+                )
             else:
                 da_in_memory = da.lbs.load()
 
@@ -423,13 +445,14 @@ class DSLoadByStep(DsDaMixin):
         return ds
 
     @validate_func_args_and_return
-    def load_and_save_by_step(self,
-                              *,
-                              indexers: Mapping[str, PositiveInt] | None = None,
-                              outfile: Annotated[NewPath, Field(strict=False)],
-                              seconds_between_requests: NonNegativeFloat = 0,
-                              **indexers_kwargs: PositiveInt | None,
-                              ) -> None:
+    def load_and_save_by_step(
+        self,
+        *,
+        indexers: Mapping[str, PositiveInt] | None = None,
+        outfile: Annotated[NewPath, Field(strict=False)],
+        seconds_between_requests: NonNegativeFloat = 0,
+        **indexers_kwargs: PositiveInt | None,
+    ) -> None:
         """Loop through DataArrays in a Dataset, loading each in memory
         splitting the loading process along one or more dimensions and save
         to outfile before freeing the memory and repeating the process for the
@@ -460,7 +483,7 @@ class DSLoadByStep(DsDaMixin):
         Examples
         --------
         This example reads data from a local file just for demonstration
-        purpose. A real aplication would be to read data from a THREDDS server.
+        purpose. A real application would be to read data from a THREDDS server.
 
         >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
         >>> ds.lbs.load_and_save_by_step(time=500,
@@ -471,8 +494,9 @@ class DSLoadByStep(DsDaMixin):
         """
 
         # indexers OR indexers_kwargs is mandatory
-        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(indexers,
-                                                                     indexers_kwargs)
+        dims_and_steps = self.__class__._indexers_or_indexers_kwargs(
+            indexers, indexers_kwargs
+        )
 
         self._check_dims(dims_and_steps.keys())
 
@@ -481,17 +505,17 @@ class DSLoadByStep(DsDaMixin):
             da = self.ds[var]
 
             # keep only the dimension that exists in the DataArray
-            dims_and_steps_da = {dim: step
-                                 for dim, step in dims_and_steps.items()
-                                 if dim in da.dims}
+            dims_and_steps_da = {
+                dim: step for dim, step in dims_and_steps.items() if dim in da.dims
+            }
 
             if dims_and_steps_da:
                 da_in_memory = da.lbs.load_by_step(
                     seconds_between_requests=seconds_between_requests,
-                    **dims_and_steps_da)
+                    **dims_and_steps_da,
+                )
             else:
                 da_in_memory = da.lbs.load()
 
             # create file in first iteration and then append
-            da_in_memory.to_netcdf(outfile,
-                                   mode="a" if idx else "w")
+            da_in_memory.to_netcdf(outfile, mode="a" if idx else "w")
