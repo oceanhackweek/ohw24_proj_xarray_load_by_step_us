@@ -11,6 +11,7 @@ import itertools
 import time
 from collections.abc import Mapping, Iterable
 from typing import Annotated, Any
+from pathlib import Path
 
 import numpy as np
 import psutil
@@ -28,6 +29,7 @@ from pydantic import (
 from tqdm import tqdm
 
 from ._options import OPTIONS
+# OPTIONS = {"tqdm_disable": False}
 
 validate_func_args_and_return = validate_call(
     config={"strict": True,
@@ -130,6 +132,35 @@ class DsDaMixin:
             )
 
             raise MemoryError(err_msg)
+
+    def update_attrs(self, attrs: Mapping[Any, Any] | None = None) -> None:
+        attrs = {} if attrs is None else attrs
+        self.dx.attrs = {**self.dx.attrs, **attrs}
+
+    def update_encoding(self, encoding: Mapping[Any, Any] | None = None) -> None:
+        encoding = {} if encoding is None else encoding
+        self.dx.encoding = {**self.dx.encoding, **encoding}
+
+    def to_localfile(
+            self,
+            outfile: Annotated[Path, Field(strict=False)],
+            **kwargs: Any,
+    ) -> None:
+
+        match outfile.suffix:
+
+            case ".nc":
+                self.dx.to_netcdf(outfile, **kwargs)
+
+            case ".zarr":
+                self.dx.to_zarr(outfile, **kwargs)
+
+            case _:
+                err_msg = (
+                    "Invalid file extenion. File extension must be"
+                    " .nc or .zarr"
+                )
+                raise ValueError(err_msg)
 
 
 @xr.register_dataarray_accessor("lbs")
@@ -434,8 +465,8 @@ class DSLoadByStep(DsDaMixin):
         ds = self.ds.copy()
 
         # apply load for each data variable
-        for _, var in enumerate(list(self.ds.data_vars)):
-            da = self.ds[var]
+        for var in list(ds.data_vars):
+            da = ds[var]
 
             # keep only the dimension that exists in the DataArray
             dims_and_steps_da = {
@@ -458,8 +489,11 @@ class DSLoadByStep(DsDaMixin):
     def load_and_save_by_step(
         self,
         *,
-        indexers: Mapping[Any, PositiveInt] | None = None,
         outfile: Annotated[NewPath, Field(strict=False)],
+        indexers: Mapping[Any, PositiveInt] | None = None,
+        attrs: Mapping[Any, Mapping[Any, Any]] | None = None,
+        encoding: Mapping[Any, Mapping[Any, Any]] | None = None,
+        to_outfile_kwargs: Mapping[Any, Any] | None = None,
         seconds_between_requests: NonNegativeFloat = 0,
         **indexers_kwargs: PositiveInt,
     ) -> None:
@@ -480,6 +514,14 @@ class DSLoadByStep(DsDaMixin):
             One of indexers or indexers_kwargs must be provided.
         outfile : Path, str
             File to save the data into.
+        attrs : dict, optional
+            A dict of dicts where the key is a variable name and the value is
+            a dict with key:value attrs pairs. To set the dataset attrs use
+            variable "global".
+        encoding : dict, optional
+            A dict of dicts where the key is a variable name and the value is
+            a dict with key:value encoding pairs. To set the dataset encoding
+            use variable "global".
         seconds_between_requests : float, optional
             Wait time in seconds between requests.
         **indexers_kwargs : {dim: indexer, ...}, optional
@@ -496,8 +538,17 @@ class DSLoadByStep(DsDaMixin):
         purpose. A real application would be to read data from a THREDDS server.
 
         >>> ds = xr.tutorial.open_dataset("air_temperature_gradient")
+        >>> attrs = {
+        ...     "global": {"title": "My example dataset"},
+        ...     "Tair": {"long_name": "My example variable"},
+        ...     }
+        >>> encoding = {
+        ...     "Tair": {"dtype": "f4", "zlib": "True", "deflate": 1},
+        ...     }
         >>> ds.lbs.load_and_save_by_step(time=500,
                                          lon=30,
+                                         attrs=attrs,
+                                         encoding=encoding,
                                          outfile="/tmp/foo.nc",
                                          seconds_between_requests=1)
 
@@ -510,9 +561,26 @@ class DSLoadByStep(DsDaMixin):
 
         self._check_dims(dims_and_steps.keys())
 
+        attrs = {} if attrs is None else attrs
+        encoding = {} if encoding is None else encoding
+        to_outfile_kwargs = {} if to_outfile_kwargs is None else to_outfile_kwargs
+
+        # use a copy so the state of self.ds is preserved
+        ds = self.ds.copy()
+
+        # update Dataset and DataArray attrs and encoding
+        ds.lbs.update_attrs(attrs.get("global", None))
+        ds.lbs.update_encoding(encoding.get("global", None))
+        for var in list(ds.data_vars):
+            ds[var].lbs.update_attrs(attrs.get(var, None))
+            ds[var].lbs.update_encoding(encoding.get(var, None))
+
+        # create empty Dataset
+        ds[[]].lbs.to_localfile(outfile, mode="w", **to_outfile_kwargs)
+
         # apply load for each data variable
-        for idx, var in enumerate(list(self.ds.data_vars)):
-            da = self.ds[var]
+        for var in list(ds.data_vars):
+            da = ds[var]
 
             # keep only the dimension that exists in the DataArray
             dims_and_steps_da = {
@@ -527,5 +595,5 @@ class DSLoadByStep(DsDaMixin):
             else:
                 da_in_memory = da.lbs.load()
 
-            # create file in first iteration and then append
-            da_in_memory.to_netcdf(outfile, mode="a" if idx else "w")
+            # append DataArray
+            da_in_memory.lbs.to_localfile(outfile, mode="a", **to_outfile_kwargs)
