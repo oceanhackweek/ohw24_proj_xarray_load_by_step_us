@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 __all__ = [
     "DALoadByStep",
     "DSLoadByStep",
@@ -8,7 +9,7 @@ __all__ = [
 
 import itertools
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Iterable
 from typing import Annotated, Any
 
 import numpy as np
@@ -29,7 +30,9 @@ from tqdm import tqdm
 from ._options import OPTIONS
 
 validate_func_args_and_return = validate_call(
-    config={"strict": True, "arbitrary_types_allowed": True, "validate_default": True},
+    config={"strict": True,
+            "arbitrary_types_allowed": True,
+            "validate_default": True},
     validate_return=True,
 )
 
@@ -88,28 +91,32 @@ class DsDaMixin:
     @classmethod
     def _indexers_or_indexers_kwargs(
         cls,
-        indexers: dict[Any, Any] | None,
-        indexers_kwargs: dict[Any, Any] | None,
-    ) -> dict[Any, Any]:
+        indexers: Mapping[Any, Any] | None,
+        indexers_kwargs: Mapping[Any, Any],
+    ) -> dict[str, Any]:
         """Check if indexers OR indexers_kwargs was given and return it."""
+
+        indexers = {} if indexers is None else indexers
 
         input_args = [indexers, indexers_kwargs]
 
-        m = [1 if x else 0 for x in input_args]
+        m = [0 if len(x) == 0 else 1 for x in input_args]
         if sum(m) != 1:
             error_message = "indexers OR indexers_kwargs must be given"
             raise ValueError(error_message)
 
-        return input_args[m.index(1)]
+        return dict(input_args[m.index(1)])
 
-    def _check_dims(self, dims: list[str]) -> None:
+    def _check_dims(self, dims: Iterable[str]) -> None:
         """Check if the request dimensions exist."""
+
+        dx_dims = [str(x) for x in self.dx.dims]
 
         for dim in dims:
             if dim not in self.dx.dims:
                 raise ValueError(
                     f"'{dim}' is not a valid dimension. Valid"
-                    " dimensions are: " + ", ".join(self.dx.dims)
+                    " dimensions are: " + ", ".join(dx_dims)
                 )
 
     def _check_available_memory(self) -> None:
@@ -127,6 +134,7 @@ class DsDaMixin:
 
 @xr.register_dataarray_accessor("lbs")
 class DALoadByStep(DsDaMixin):
+
     @property
     def da(self) -> xr.DataArray:
         """Returns the DataArray itself."""
@@ -134,7 +142,7 @@ class DALoadByStep(DsDaMixin):
 
     @property
     def name(self) -> str:
-        return "unnamed" if self.da.name is None else self.da.name
+        return "unnamed" if self.da.name is None else str(self.da.name)
 
     @property
     def itemsize_packed(self) -> int:
@@ -207,9 +215,9 @@ class DALoadByStep(DsDaMixin):
     def load_by_step(
         self,
         *,
-        indexers: Mapping[str, PositiveInt] | None = None,
+        indexers: Mapping[Any, PositiveInt] | None = None,
         seconds_between_requests: NonNegativeFloat = 0,
-        **indexers_kwargs: PositiveInt | None,
+        **indexers_kwargs: PositiveInt,
     ) -> xr.DataArray:
         """Load the DataArray in memory splitting the loading process along one
         or more dimensions.
@@ -288,9 +296,9 @@ class DALoadByStep(DsDaMixin):
     def load_by_bytesize(
         self,
         *,
-        indexers: Mapping[str, PositiveInt | str] | None = None,
+        indexers: Mapping[Any, PositiveInt | str] | None = None,
         seconds_between_requests: NonNegativeFloat = 0,
-        **indexers_kwargs: PositiveInt | str | None,
+        **indexers_kwargs: PositiveInt | str,
     ) -> xr.DataArray:
         """
 
@@ -343,7 +351,8 @@ class DALoadByStep(DsDaMixin):
             raise ValueError(error_message)
 
         return self.load_by_step(
-            **{dim: step}, seconds_between_requests=seconds_between_requests
+            **{dim: step},   # type: ignore
+            seconds_between_requests=seconds_between_requests,
         )
 
     def load(self) -> xr.DataArray:
@@ -363,8 +372,9 @@ class DALoadByStep(DsDaMixin):
 
 @xr.register_dataset_accessor("lbs")
 class DSLoadByStep(DsDaMixin):
+
     @property
-    def ds(self) -> xr.DataArray:
+    def ds(self) -> xr.Dataset:
         """Returns the DataSet itself."""
         return self._obj
 
@@ -372,9 +382,9 @@ class DSLoadByStep(DsDaMixin):
     def load_by_step(
         self,
         *,
-        indexers: Mapping[str, PositiveInt] | None = None,
+        indexers: Mapping[Any, PositiveInt] | None = None,
         seconds_between_requests: NonNegativeFloat = 0,
-        **indexers_kwargs: PositiveInt | None,
+        **indexers_kwargs: PositiveInt,
     ) -> xr.Dataset:
         """Load the Dataset in memory splitting the loading process along one
         or more dimensions.
@@ -448,10 +458,10 @@ class DSLoadByStep(DsDaMixin):
     def load_and_save_by_step(
         self,
         *,
-        indexers: Mapping[str, PositiveInt] | None = None,
+        indexers: Mapping[Any, PositiveInt] | None = None,
         outfile: Annotated[NewPath, Field(strict=False)],
         seconds_between_requests: NonNegativeFloat = 0,
-        **indexers_kwargs: PositiveInt | None,
+        **indexers_kwargs: PositiveInt,
     ) -> None:
         """Loop through DataArrays in a Dataset, loading each in memory
         splitting the loading process along one or more dimensions and save
@@ -498,7 +508,7 @@ class DSLoadByStep(DsDaMixin):
             indexers, indexers_kwargs
         )
 
-        self._check_dims(dims_and_steps.keys())
+        self._check_dims(list(dims_and_steps.keys()))
 
         # apply load for each data variable
         for idx, var in enumerate(list(self.ds.data_vars)):
