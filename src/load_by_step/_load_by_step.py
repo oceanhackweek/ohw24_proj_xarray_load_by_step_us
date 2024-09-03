@@ -107,7 +107,7 @@ class DsDaMixin:
 
         return dict(input_args[m.index(1)])
 
-    def _check_dims(self, dims: Iterable[str]) -> None:
+    def _check_dims(self, dims: Iterable) -> None:
         """Check if the request dimensions exist."""
 
         dx_dims = [str(x) for x in self.dx.dims]
@@ -508,7 +508,7 @@ class DSLoadByStep(DsDaMixin):
             indexers, indexers_kwargs
         )
 
-        self._check_dims(list(dims_and_steps.keys()))
+        self._check_dims(dims_and_steps.keys())
 
         # apply load for each data variable
         for idx, var in enumerate(list(self.ds.data_vars)):
